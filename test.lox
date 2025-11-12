@@ -1,0 +1,3 @@
+var puts = exfun("msvcrt.dll|puts|ptr|i32");
+puts("hello from dyncaller");
+puts("hello again  from dyncaller");

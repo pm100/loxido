@@ -77,7 +77,7 @@ pub struct Scanner<'sourcecode> {
 }
 
 impl<'sourcecode> Scanner<'sourcecode> {
-    pub fn new(code: &'sourcecode str) -> Scanner {
+    pub fn new(code: &str) -> Scanner<'_> {
         let mut keywords = HashMap::with_capacity(16);
         keywords.insert("and", TokenType::And);
         keywords.insert("class", TokenType::Class);

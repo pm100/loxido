@@ -1,4 +1,5 @@
 use cpu_time::ProcessTime;
+use dyncall::{ArgVal, DynCaller, FuncDef};
 use fmt::Debug;
 
 use crate::{
@@ -6,9 +7,9 @@ use crate::{
     compiler::compile,
     error::LoxError,
     gc::{Gc, GcRef, GcTrace, GcTraceFormatter},
-    objects::{BoundMethod, Class, Closure, Instance, NativeFunction, Upvalue},
+    objects::{BoundMethod, Class, Closure, ExternalFunction, Instance, NativeFunction, Upvalue},
 };
-use std::fmt;
+use std::{cell::RefCell, fmt};
 
 pub struct Vm {
     gc: Gc,
@@ -18,6 +19,7 @@ pub struct Vm {
     open_upvalues: Vec<GcRef<Upvalue>>,
     init_string: GcRef<String>,
     start_time: ProcessTime,
+    dyncaller: RefCell<DynCaller>,
 }
 
 impl Vm {
@@ -36,9 +38,12 @@ impl Vm {
             open_upvalues: Vec::with_capacity(Vm::STACK_SIZE),
             init_string,
             start_time: ProcessTime::now(),
+            dyncaller: RefCell::new(DynCaller::new()),
         };
         vm.define_native("clock", NativeFunction(clock));
         vm.define_native("panic", NativeFunction(lox_panic));
+        vm.define_native("exfun", NativeFunction(exfun));
+        //  vm.define_native("exarg", NativeFunction(exarg));
         vm
     }
 
@@ -71,6 +76,17 @@ impl Vm {
     fn define_native(&mut self, name: &str, native: NativeFunction) {
         let name = self.gc.intern(name.to_owned());
         self.globals.insert(name, Value::NativeFunction(native));
+    }
+
+    fn define_external(
+        &mut self,
+        name: &str,
+        external: ExternalFunction,
+    ) -> GcRef<ExternalFunction> {
+        // let name = self.gc.intern(name.to_owned());
+        let gc = self.alloc(external);
+        gc
+        // self.globals.insert(name, Value::ExternalFunction(gc));
     }
 
     fn runtime_error(&self, msg: &str) -> Result<(), LoxError> {
@@ -412,9 +428,48 @@ impl Vm {
             Value::Closure(closure) => self.call(closure, arg_count),
             Value::NativeFunction(native) => {
                 let left = self.stack.len() - arg_count;
-                let result = native.0(self, &self.stack[left..]);
+                let result = native.0(self, left); //&self.stack[left..])?;
                 self.stack.truncate(left - 1);
-                self.push(result);
+                self.push(result?);
+                Ok(())
+            }
+            Value::ExternalFunction(external) => {
+                let left = self.stack.len() - arg_count;
+                //  external.funcdef.reset();
+                let mut temp_strings: Vec<std::ffi::CString> = Vec::new();
+                // let argvals = Vec<ArgVal>::new();
+                for arg in self.stack[left..].iter() {
+                    match arg {
+                        //Value::Bool(b) => external.funcdef.push_arg(ArgVal::(*b)),
+                        //  Value::Number(n) => external.funcdef.push_arg(&ArgVal::F64(*n)),
+                        //Value::Nil => external
+                        //  .funcdef
+                        //.push_arg(ArgVal::Pointer(std::ptr::null_mut())),
+                        Value::String(s) => {
+                            let s = self.gc.deref(*s);
+                            let cstring = std::ffi::CString::new(s.as_str()).unwrap();
+                            temp_strings.push(cstring);
+                            //  argvals.push(ArgVal::String(&temp_strings[temp_strings.len() - 1]));
+                            let external = self.gc.deref_mut(external);
+                            external
+                                .funcdef
+                                .push_arg(&temp_strings[temp_strings.len() - 1]);
+                            //     cstring.as_ptr() as *mut std::ffi::c_void
+                            // ));
+                            // To keep CString alive
+                            // external.allocated_cstrings.push(cstring);
+                        }
+                        _ => {
+                            return self
+                                .runtime_error("Unsupported argument type for external function.");
+                        }
+                    }
+                }
+                let external = self.gc.deref_mut(external);
+                let result = external.funcdef.call2();
+                self.stack.truncate(left - 1);
+                let av = Value::DynArgVal(self.gc.alloc(result));
+                self.push(av);
                 Ok(())
             }
             _ => self.runtime_error("Can only call functions and classes."),
@@ -591,14 +646,14 @@ impl CallFrame {
     }
 }
 
-fn clock(vm: &Vm, _args: &[Value]) -> Value {
+fn clock(vm: &mut Vm, _left: usize) -> Result<Value, LoxError> {
     let time = vm.start_time.elapsed().as_secs_f64();
-    Value::Number(time)
+    Ok(Value::Number(time))
 }
 
-fn lox_panic(vm: &Vm, args: &[Value]) -> Value {
+fn lox_panic(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
     let mut terms: Vec<String> = vec![];
-
+    let args = &vm.stack[left..];
     for &arg in args.iter() {
         let formatter = GcTraceFormatter::new(arg, &vm.gc);
         let term = format!("{}", formatter);
@@ -606,4 +661,40 @@ fn lox_panic(vm: &Vm, args: &[Value]) -> Value {
     }
 
     panic!("panic: {}", terms.join(", "))
+}
+
+fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
+    let args = &vm.stack[left..];
+    // Example external function that adds two numbers using dyncall
+    if args.len() != 1 {
+        let x = vm
+            .runtime_error("exfun expects exactly 1 arguments")
+            .unwrap_err();
+        return Err(x);
+    }
+
+    let ret = match args[0] {
+        Value::String(n) => {
+            let s = vm.gc.deref(n).clone();
+            let funcdef = vm
+                .dyncaller
+                .borrow_mut()
+                .define_function_by_str(&s)
+                .map_err(|e| {
+                    let msg = format!("Failed to define external function: {}", e);
+                    vm.runtime_error(&msg).unwrap_err()
+                })?;
+            let external = ExternalFunction::new(funcdef, n);
+            //let gc = vm.alloc(external);
+            let gc = vm.define_external(&s, external);
+            return Ok(Value::ExternalFunction(gc));
+        }
+        _ => {
+            let x = vm
+                .runtime_error("exfun expects exactly 1 string argument")
+                .unwrap_err();
+            return Err(x);
+        }
+    };
+    //unreachable!(); //Ok(())
 }

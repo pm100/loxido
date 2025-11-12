@@ -244,6 +244,7 @@ impl<'sourcecode> Parser<'sourcecode> {
         rule(False, Some(Parser::literal), None, P::None);
         rule(For, None, None, P::None);
         rule(Fun, None, None, P::None);
+        //  rule(ExFun, None, None, P::None);
         rule(If, None, None, P::None);
         rule(Nil, Some(Parser::literal), None, P::None);
         rule(Or, None, Some(Parser::or_op), P::Or);
@@ -315,7 +316,6 @@ impl<'sourcecode> Parser<'sourcecode> {
         } else {
             self.statement();
         }
-
         if self.panic_mode {
             self.synchronize();
         }
@@ -370,6 +370,18 @@ impl<'sourcecode> Parser<'sourcecode> {
         self.function(FunctionType::Function);
         self.define_variable(global);
     }
+
+    // fn exfun_declaration(&mut self) {
+    //     let global = self.parse_variable("Expect function name.");
+    //     self.consume(TokenType::Equal, "Expect '=' after exfun name.");
+    //     let argstr = self.expression();
+    //     //  println!("Defining external function with args: {}", argstr);
+    //     self.consume(
+    //         TokenType::Semicolon,
+    //         "Expect ';' after variable declaration.",
+    //     );
+    //     self.define_variable(global);
+    // }
 
     fn push_compiler(&mut self, kind: FunctionType) {
         let function_name = self.gc.intern(self.previous.lexeme.to_owned());

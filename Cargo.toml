@@ -15,6 +15,7 @@ debug_trace_execution = []
 
 [dependencies]
 cpu-time = "1.0.0"
+dyncall = {path = "c:/work/dyncall"}
 
 [dev-dependencies]
 regex = "1.5.4"

@@ -1,6 +1,8 @@
+use dyncall::ArgVal;
+
 use crate::{
     gc::{Gc, GcRef, GcTrace},
-    objects::{BoundMethod, Class, Closure, Function, Instance, NativeFunction},
+    objects::{BoundMethod, Class, Closure, ExternalFunction, Function, Instance, NativeFunction},
 };
 use std::{any::Any, collections::HashMap, fmt};
 
@@ -13,9 +15,11 @@ pub enum Value {
     Function(GcRef<Function>),
     Instance(GcRef<Instance>),
     NativeFunction(NativeFunction),
+    ExternalFunction(GcRef<ExternalFunction>),
     Nil,
     Number(f64),
     String(GcRef<String>),
+    DynArgVal(GcRef<ArgVal>),
 }
 
 impl Value {
@@ -41,6 +45,8 @@ impl GcTrace for Value {
             Value::Nil => write!(f, "nil"),
             Value::Number(value) => write!(f, "{}", value),
             Value::String(value) => gc.deref(*value).format(f, gc),
+            Value::ExternalFunction(value) => gc.deref(*value).format(f, gc),
+            Value::DynArgVal(value) => gc.deref(*value).format(f, gc),
         }
     }
     fn size(&self) -> usize {

@@ -1,8 +1,16 @@
-use std::{any::Any, fmt, mem};
+use std::{
+    any::Any,
+    cell::RefCell,
+    ffi::os_str::Display,
+    fmt::{self, Debug},
+    mem,
+};
+
+use dyncall::ArgVal;
 
 use crate::{
-    chunk::Chunk,
-    chunk::{Instruction, Table, Value},
+    chunk::{Chunk, Instruction, Table, Value},
+    error::LoxError,
     gc::{Gc, GcRef, GcTrace},
     vm::Vm,
 };
@@ -23,8 +31,65 @@ impl GcTrace for String {
     }
 }
 
+pub struct ExternalFunction {
+    pub funcdef: dyncall::FuncDef,
+    pub name: GcRef<String>,
+}
+
+impl ExternalFunction {
+    pub fn new(funcdef: dyncall::FuncDef, name: GcRef<String>) -> Self {
+        ExternalFunction { funcdef, name }
+    }
+}
+
+impl GcTrace for ExternalFunction {
+    fn format(&self, f: &mut fmt::Formatter, gc: &Gc) -> fmt::Result {
+        let name = gc.deref(self.name);
+        write!(f, "<external function {}>", name)
+    }
+    fn size(&self) -> usize {
+        42 //mem::size_of::<Closure>() + self.upvalues.capacity() * mem::size_of::<GcRef<Upvalue>>()
+    }
+    fn trace(&self, gc: &mut Gc) {
+        gc.mark_object(self.name);
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl GcTrace for ArgVal {
+    fn format(&self, f: &mut fmt::Formatter, _gc: &Gc) -> fmt::Result {
+        write!(f, "<dyncall::ArgVal>")
+    }
+    fn size(&self) -> usize {
+        mem::size_of::<ArgVal>()
+    }
+    fn trace(&self, _gc: &mut Gc) {}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl Debug for ExternalFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<external fn>")
+    }
+}
+
+impl std::fmt::Display for ExternalFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<external fn>")
+    }
+}
 #[derive(Clone, Copy)]
-pub struct NativeFunction(pub fn(&Vm, &[Value]) -> Value);
+pub struct NativeFunction(pub fn(&mut Vm, usize) -> Result<Value, LoxError>);
 
 impl fmt::Debug for NativeFunction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
