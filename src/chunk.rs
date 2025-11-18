@@ -1,8 +1,9 @@
 use dyncall::ArgVal;
 
 use crate::{
+    extfunc::ExternalFunction,
     gc::{Gc, GcRef, GcTrace},
-    objects::{BoundMethod, Class, Closure, ExternalFunction, Function, Instance, NativeFunction},
+    objects::{BoundMethod, Class, Closure, Function, Instance, NativeFunction},
 };
 use std::{any::Any, collections::HashMap, fmt};
 

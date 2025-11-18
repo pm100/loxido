@@ -6,8 +6,9 @@ use crate::{
     chunk::{Chunk, Instruction, Table, Value},
     compiler::compile,
     error::LoxError,
+    extfunc::ExternalFunction,
     gc::{Gc, GcRef, GcTrace, GcTraceFormatter},
-    objects::{BoundMethod, Class, Closure, ExternalFunction, Instance, NativeFunction, Upvalue},
+    objects::{BoundMethod, Class, Closure, Instance, NativeFunction, Upvalue},
 };
 use std::{cell::RefCell, fmt};
 
@@ -454,10 +455,15 @@ impl Vm {
                             external
                                 .funcdef
                                 .push_arg(&temp_strings[temp_strings.len() - 1]);
-                            //     cstring.as_ptr() as *mut std::ffi::c_void
-                            // ));
-                            // To keep CString alive
-                            // external.allocated_cstrings.push(cstring);
+                        }
+                        Value::DynArgVal(argval) => {
+                            let argval = self.gc.deref(*argval).clone();
+                            let external = self.gc.deref_mut(external);
+                            external.funcdef.push_arg(&argval);
+                        }
+                        Value::Number(n) => {
+                            let external = self.gc.deref_mut(external);
+                            external.funcdef.push_arg(&(*n as u32));
                         }
                         _ => {
                             return self
@@ -665,36 +671,31 @@ fn lox_panic(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
 
 fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
     let args = &vm.stack[left..];
-    // Example external function that adds two numbers using dyncall
     if args.len() != 1 {
-        let x = vm
+        let err = vm
             .runtime_error("exfun expects exactly 1 arguments")
+            .unwrap_err();
+        return Err(err);
+    }
+
+    if let Value::String(n) = args[0] {
+        let s = vm.gc.deref(n).clone();
+        let funcdef = vm
+            .dyncaller
+            .borrow_mut()
+            .define_function_by_str(&s)
+            .map_err(|e| {
+                let msg = format!("Failed to define external function: {}", e);
+                vm.runtime_error(&msg).unwrap_err()
+            })?;
+        let external = ExternalFunction::new(funcdef, n);
+
+        let gc = vm.define_external(&s, external);
+        return Ok(Value::ExternalFunction(gc));
+    } else {
+        let x = vm
+            .runtime_error("exfun expects exactly 1 string argument")
             .unwrap_err();
         return Err(x);
     }
-
-    let ret = match args[0] {
-        Value::String(n) => {
-            let s = vm.gc.deref(n).clone();
-            let funcdef = vm
-                .dyncaller
-                .borrow_mut()
-                .define_function_by_str(&s)
-                .map_err(|e| {
-                    let msg = format!("Failed to define external function: {}", e);
-                    vm.runtime_error(&msg).unwrap_err()
-                })?;
-            let external = ExternalFunction::new(funcdef, n);
-            //let gc = vm.alloc(external);
-            let gc = vm.define_external(&s, external);
-            return Ok(Value::ExternalFunction(gc));
-        }
-        _ => {
-            let x = vm
-                .runtime_error("exfun expects exactly 1 string argument")
-                .unwrap_err();
-            return Err(x);
-        }
-    };
-    //unreachable!(); //Ok(())
 }

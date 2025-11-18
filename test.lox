@@ -1,3 +1,34 @@
-var puts = exfun("msvcrt.dll|puts|ptr|i32");
-puts("hello from dyncaller");
-puts("hello again  from dyncaller");
+
+fun write_file(handle, text){
+    var ret =fputs(text,handle);
+    print ret;//getlasterror();
+}
+//var getlasterror = exfun("kernel32|GetLastError||u32");
+//var puts = exfun("msvcrt.dll|puts|ptr|i32");
+//var fopen = exfun("msvcrt.dll|fopen|ptr,ptr|u64");
+var fputs = exfun("ucrtbase|fputs|ptr,ptr|u64");
+//var fclose = exfun("msvcrt|fclose|u64|u64");
+var xx = exfun("ucrtbase|__acrt_iob_func|u32|u64");
+var perror = exfun("msvcrt.dll|perror|ptr|i32");
+var fgets = exfun("msvcrt|fgets|ptr,i32,ptr|ptr");
+//puts("hello from dyncaller");
+//var ret = puts("hello again  from dyncaller");
+//print ret;
+//var fh = fopen("test.txt","w");
+//print fh;//getlasterror();
+//fputs("Test text", fh);
+//write_file(fh, "test");
+//print fclose(fh);
+var stdout = xx(1);
+var stdin = xx(0);
+print stdin;
+var buff = "          ";
+print fgets(buff,5,stdin);
+perror("err");
+print buff;
+//print getlasterror();
+//print stdout;
+fputs("hello", stdout);
+//fputs("hello", fh);
+
+//write_file(stdout, "stdout");

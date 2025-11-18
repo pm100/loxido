@@ -1,6 +1,7 @@
 mod chunk;
 mod compiler;
 mod error;
+mod extfunc;
 mod gc;
 mod objects;
 mod scanner;
