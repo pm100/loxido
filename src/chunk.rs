@@ -1,7 +1,5 @@
-use dyncall::ArgVal;
-
 use crate::{
-    extfunc::ExternalFunction,
+    extfunc::{ExternalData, ExternalFunction},
     gc::{Gc, GcRef, GcTrace},
     objects::{BoundMethod, Class, Closure, Function, Instance, NativeFunction},
 };
@@ -20,7 +18,7 @@ pub enum Value {
     Nil,
     Number(f64),
     String(GcRef<String>),
-    DynArgVal(GcRef<ArgVal>),
+    ExternalData(GcRef<ExternalData>),
 }
 
 impl Value {
@@ -47,7 +45,7 @@ impl GcTrace for Value {
             Value::Number(value) => write!(f, "{}", value),
             Value::String(value) => gc.deref(*value).format(f, gc),
             Value::ExternalFunction(value) => gc.deref(*value).format(f, gc),
-            Value::DynArgVal(value) => gc.deref(*value).format(f, gc),
+            Value::ExternalData(value) => gc.deref(*value).format(f, gc),
         }
     }
     fn size(&self) -> usize {
@@ -61,6 +59,7 @@ impl GcTrace for Value {
             Value::Function(value) => gc.mark_object(*value),
             Value::Instance(value) => gc.mark_object(*value),
             Value::String(value) => gc.mark_object(*value),
+            Value::ExternalData(value) => gc.mark_object(*value),
             _ => (),
         }
     }

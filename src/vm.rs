@@ -1,16 +1,17 @@
 use cpu_time::ProcessTime;
-use dyncall::{ArgVal, DynCaller, FuncDef};
+use dyncall::{ArgType, ArgVal, DynCaller};
 use fmt::Debug;
+use std::ffi::CStr;
 
 use crate::{
     chunk::{Chunk, Instruction, Table, Value},
     compiler::compile,
     error::LoxError,
-    extfunc::ExternalFunction,
+    extfunc::{ExternalData, ExternalFunction},
     gc::{Gc, GcRef, GcTrace, GcTraceFormatter},
     objects::{BoundMethod, Class, Closure, Instance, NativeFunction, Upvalue},
 };
-use std::{cell::RefCell, fmt};
+use std::fmt;
 
 pub struct Vm {
     gc: Gc,
@@ -20,7 +21,6 @@ pub struct Vm {
     open_upvalues: Vec<GcRef<Upvalue>>,
     init_string: GcRef<String>,
     start_time: ProcessTime,
-    dyncaller: RefCell<DynCaller>,
 }
 
 impl Vm {
@@ -39,12 +39,10 @@ impl Vm {
             open_upvalues: Vec::with_capacity(Vm::STACK_SIZE),
             init_string,
             start_time: ProcessTime::now(),
-            dyncaller: RefCell::new(DynCaller::new()),
         };
         vm.define_native("clock", NativeFunction(clock));
         vm.define_native("panic", NativeFunction(lox_panic));
         vm.define_native("exfun", NativeFunction(exfun));
-        //  vm.define_native("exarg", NativeFunction(exarg));
         vm
     }
 
@@ -79,15 +77,87 @@ impl Vm {
         self.globals.insert(name, Value::NativeFunction(native));
     }
 
-    fn define_external(
+    fn define_external(&mut self, external: ExternalFunction) -> GcRef<ExternalFunction> {
+        self.alloc(external)
+    }
+
+    fn alloc_external_data(&mut self, data: ExternalData) -> Value {
+        Value::ExternalData(self.alloc(data))
+    }
+
+    fn expect_string(&self, value: Value, message: &str) -> Result<String, LoxError> {
+        match value {
+            Value::String(reference) => Ok(self.gc.deref(reference).clone()),
+            _ => Err(self.runtime_error(message).unwrap_err()),
+        }
+    }
+
+    fn expect_number(&self, value: Value, message: &str) -> Result<f64, LoxError> {
+        match value {
+            Value::Number(number) => Ok(number),
+            _ => Err(self.runtime_error(message).unwrap_err()),
+        }
+    }
+
+    fn expect_external_data(
+        &self,
+        value: Value,
+        message: &str,
+    ) -> Result<GcRef<ExternalData>, LoxError> {
+        if let Value::ExternalData(reference) = value {
+            Ok(reference)
+        } else {
+            Err(self.runtime_error(message).unwrap_err())
+        }
+    }
+
+    fn arg_val_to_value(&mut self, result: ArgVal, return_type: &ArgType) -> Value {
+        match (return_type, result) {
+            (ArgType::CString, ArgVal::Pointer(pointer)) => {
+                if pointer.is_null() {
+                    Value::Nil
+                } else {
+                    let string = unsafe { CStr::from_ptr(pointer.cast()) }
+                        .to_string_lossy()
+                        .into_owned();
+                    Value::String(self.intern(string))
+                }
+            }
+            (_, ArgVal::None) => Value::Nil,
+            (_, ArgVal::Char(value)) => Value::Number(value as f64),
+            (_, ArgVal::I16(value)) => Value::Number(value as f64),
+            (_, ArgVal::U16(value)) => Value::Number(value as f64),
+            (_, ArgVal::I32(value)) => Value::Number(value as f64),
+            (_, ArgVal::U32(value)) => Value::Number(value as f64),
+            (_, ArgVal::I64(value)) => Value::Number(value as f64),
+            (_, ArgVal::U64(value)) => Value::Number(value as f64),
+            (_, ArgVal::F32(value)) => Value::Number(value as f64),
+            (_, ArgVal::F64(value)) => Value::Number(value),
+            (_, ArgVal::Pointer(pointer)) => self.alloc_external_data(ExternalData::Pointer(pointer)),
+            (_, ArgVal::StructValue(_)) => Value::Nil,
+            _ => Value::Nil,
+        }
+    }
+
+    fn push_number_arg(
         &mut self,
-        name: &str,
-        external: ExternalFunction,
-    ) -> GcRef<ExternalFunction> {
-        // let name = self.gc.intern(name.to_owned());
-        let gc = self.alloc(external);
-        gc
-        // self.globals.insert(name, Value::ExternalFunction(gc));
+        invocation: &mut dyncall::Invocation<'_>,
+        arg_type: &ArgType,
+        value: f64,
+    ) -> Result<(), LoxError> {
+        match arg_type {
+            ArgType::Char => invocation.push_arg(&(value as u8)),
+            ArgType::I16 => invocation.push_arg(&(value as i16)),
+            ArgType::U16 => invocation.push_arg(&(value as u16)),
+            ArgType::I32 => invocation.push_arg(&(value as i32)),
+            ArgType::U32 => invocation.push_arg(&(value as u32)),
+            ArgType::I64 => invocation.push_arg(&(value as i64)),
+            ArgType::U64 => invocation.push_arg(&(value as u64)),
+            ArgType::F32 => invocation.push_arg(&(value as f32)),
+            ArgType::F64 => invocation.push_arg(&value),
+            _ => return self.runtime_error("Expected numeric dyncall argument type."),
+        }
+        Ok(())
     }
 
     fn runtime_error(&self, msg: &str) -> Result<(), LoxError> {
@@ -436,34 +506,88 @@ impl Vm {
             }
             Value::ExternalFunction(external) => {
                 let left = self.stack.len() - arg_count;
-                //  external.funcdef.reset();
-                let mut temp_strings: Vec<std::ffi::CString> = Vec::new();
-                // let argvals = Vec<ArgVal>::new();
-                for arg in self.stack[left..].iter() {
-                    match arg {
-                        //Value::Bool(b) => external.funcdef.push_arg(ArgVal::(*b)),
-                        //  Value::Number(n) => external.funcdef.push_arg(&ArgVal::F64(*n)),
-                        //Value::Nil => external
-                        //  .funcdef
-                        //.push_arg(ArgVal::Pointer(std::ptr::null_mut())),
-                        Value::String(s) => {
-                            let s = self.gc.deref(*s);
-                            let cstring = std::ffi::CString::new(s.as_str()).unwrap();
-                            temp_strings.push(cstring);
-                            //  argvals.push(ArgVal::String(&temp_strings[temp_strings.len() - 1]));
-                            let external = self.gc.deref_mut(external);
-                            external
-                                .funcdef
-                                .push_arg(&temp_strings[temp_strings.len() - 1]);
+                let args: Vec<Value> = self.stack[left..].to_vec();
+                let funcdef = self.gc.deref(external).funcdef.clone();
+                if args.len() != funcdef.get_arg_count() {
+                    let msg = format!(
+                        "Expected {} arguments but got {}.",
+                        funcdef.get_arg_count(),
+                        args.len()
+                    );
+                    return self.runtime_error(&msg);
+                }
+
+                let mut invocation = funcdef.prep();
+                for (index, arg) in args.into_iter().enumerate() {
+                    let arg_type = funcdef.get_arg_type(index).clone();
+                    match arg_type {
+                        ArgType::Char
+                        | ArgType::I16
+                        | ArgType::U16
+                        | ArgType::I32
+                        | ArgType::U32
+                        | ArgType::I64
+                        | ArgType::U64
+                        | ArgType::F32
+                        | ArgType::F64 => {
+                            let number = self.expect_number(
+                                arg,
+                                "External function numeric arguments require numbers.",
+                            )?;
+                            self.push_number_arg(&mut invocation, &arg_type, number)?;
                         }
-                        Value::DynArgVal(argval) => {
-                            let argval = self.gc.deref(*argval).clone();
-                            let external = self.gc.deref_mut(external);
-                            external.funcdef.push_arg(&argval);
+                        ArgType::CString => {
+                            let string = self.expect_string(
+                                arg,
+                                "External function cstr arguments require strings.",
+                            )?;
+                            invocation.push_arg(&string);
                         }
-                        Value::Number(n) => {
-                            let external = self.gc.deref_mut(external);
-                            external.funcdef.push_arg(&(*n as u32));
+                        ArgType::OCString(_) => {
+                            return self.runtime_error(
+                                "Output string buffers are not supported by loxido.",
+                            );
+                        }
+                        ArgType::ByteBuffer | ArgType::OByteBuffer(_) => {
+                            return self.runtime_error(
+                                "Raw byte buffer arguments are not supported by loxido.",
+                            );
+                        }
+                        ArgType::OpaquePointer => {
+                            let pointer = match arg {
+                                Value::Nil => std::ptr::null_mut(),
+                                Value::ExternalData(reference) => self
+                                    .gc
+                                    .deref(reference)
+                                    .pointer_value()
+                                    .ok_or_else(|| {
+                                        self.runtime_error(
+                                            "Opaque pointer arguments require pointer-compatible values.",
+                                        )
+                                        .unwrap_err()
+                                    })?,
+                                _ => {
+                                    return self.runtime_error(
+                                        "Opaque pointer arguments require pointer-compatible values.",
+                                    )
+                                }
+                            };
+                            let arg_val = ArgVal::Pointer(pointer);
+                            invocation.push_arg(&arg_val);
+                        }
+                        ArgType::Struct(_) => {
+                            return self
+                                .runtime_error("Struct arguments are not supported by loxido.");
+                        }
+                        ArgType::Pointer(inner) => match inner.as_ref() {
+                            _ => {
+                                return self.runtime_error(
+                                    "Pointer output arguments are not supported by loxido.",
+                                );
+                            }
+                        },
+                        ArgType::Void => {
+                            return self.runtime_error("Void is not a valid argument type.");
                         }
                         _ => {
                             return self
@@ -471,11 +595,12 @@ impl Vm {
                         }
                     }
                 }
-                let external = self.gc.deref_mut(external);
-                let result = external.funcdef.call2();
+
+                let return_type = funcdef.get_return_type().clone();
+                let result = invocation.call();
                 self.stack.truncate(left - 1);
-                let av = Value::DynArgVal(self.gc.alloc(result));
-                self.push(av);
+                let value = self.arg_val_to_value(result, &return_type);
+                self.push(value);
                 Ok(())
             }
             _ => self.runtime_error("Can only call functions and classes."),
@@ -679,18 +804,22 @@ fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
     }
 
     if let Value::String(n) = args[0] {
-        let s = vm.gc.deref(n).clone();
-        let funcdef = vm
-            .dyncaller
-            .borrow_mut()
-            .define_function_by_str(&s)
-            .map_err(|e| {
-                let msg = format!("Failed to define external function: {}", e);
-                vm.runtime_error(&msg).unwrap_err()
-            })?;
+        let mut s = vm.gc.deref(n).clone();
+        if s.split('|').count() == 4 {
+            s.push('|');
+        }
+        let mut parts = s.split('|').map(str::to_owned).collect::<Vec<_>>();
+        if parts.len() >= 5 && parts[3].trim() == "str" {
+            parts[3] = "cstr".to_owned();
+            s = parts.join("|");
+        }
+        let funcdef = DynCaller::define_function_by_str(&s).map_err(|e| {
+            let msg = format!("Failed to define external function: {}", e);
+            vm.runtime_error(&msg).unwrap_err()
+        })?;
         let external = ExternalFunction::new(funcdef, n);
 
-        let gc = vm.define_external(&s, external);
+        let gc = vm.define_external(external);
         return Ok(Value::ExternalFunction(gc));
     } else {
         let x = vm
@@ -699,3 +828,4 @@ fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
         return Err(x);
     }
 }
+

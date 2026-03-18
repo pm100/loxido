@@ -1,50 +1,12 @@
-use dyncall::ArgVal;
-
-use crate::{
-    chunk::Value,
-    error::LoxError,
-    gc::{Gc, GcRef, GcTrace},
-    vm::Vm,
-};
-
-// fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
-//     let args = &vm.stack[left..];
-//     // Example external function that adds two numbers using dyncall
-//     if args.len() != 1 {
-//         let err = vm
-//             .runtime_error("exfun expects exactly 1 arguments")
-//             .unwrap_err();
-//         return Err(err);
-//     }
-
-//     if let Value::String(n) = args[0] {
-//         let s = vm.gc.deref(n).clone();
-//         let funcdef = vm
-//             .dyncaller
-//             .borrow_mut()
-//             .define_function_by_str(&s)
-//             .map_err(|e| {
-//                 let msg = format!("Failed to define external function: {}", e);
-//                 vm.runtime_error(&msg).unwrap_err()
-//             })?;
-//         let external = ExternalFunction::new(funcdef, n);
-
-//         let gc = vm.define_external(&s, external);
-//         return Ok(Value::ExternalFunction(gc));
-//     } else {
-//         let x = vm
-//             .runtime_error("exfun expects exactly 1 string argument")
-//             .unwrap_err();
-//         return Err(x);
-//     }
-// }
 use std::{
     any::Any,
-    cell::RefCell,
-    ffi::os_str::Display,
+    ffi::c_void,
     fmt::{self, Debug},
     mem,
 };
+
+use crate::gc::{Gc, GcRef, GcTrace};
+
 pub struct ExternalFunction {
     pub funcdef: dyncall::FuncDef,
     pub defstr: GcRef<String>,
@@ -53,6 +15,20 @@ pub struct ExternalFunction {
 impl ExternalFunction {
     pub fn new(funcdef: dyncall::FuncDef, defstr: GcRef<String>) -> Self {
         ExternalFunction { funcdef, defstr }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ExternalData {
+    Pointer(*mut c_void),
+}
+
+impl ExternalData {
+    pub fn pointer_value(&self) -> Option<*mut c_void> {
+        match self {
+            Self::Pointer(ptr) => Some(*ptr),
+            _ => None,
+        }
     }
 }
 
@@ -75,12 +51,20 @@ impl GcTrace for ExternalFunction {
     }
 }
 
-impl GcTrace for ArgVal {
+impl GcTrace for ExternalData {
     fn format(&self, f: &mut fmt::Formatter, _gc: &Gc) -> fmt::Result {
-        write!(f, "<dyncall::ArgVal> {:?}", self)
+        match self {
+            Self::Pointer(ptr) => {
+                if ptr.is_null() {
+                    write!(f, "ptr(null)")
+                } else {
+                    write!(f, "ptr({ptr:p})")
+                }
+            }
+        }
     }
     fn size(&self) -> usize {
-        mem::size_of::<ArgVal>()
+        mem::size_of::<ExternalData>()
     }
     fn trace(&self, _gc: &mut Gc) {}
     fn as_any(&self) -> &dyn Any {

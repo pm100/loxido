@@ -18,7 +18,9 @@ fn loxido_command() -> Command {
         .to_owned();
     path.push(env!("CARGO_PKG_NAME"));
     path.set_extension(env::consts::EXE_EXTENSION);
-    Command::new(path.into_os_string())
+    let mut command = Command::new(path.into_os_string());
+    command.current_dir(env!("CARGO_MANIFEST_DIR"));
+    command
 }
 
 struct RuntimeError {
@@ -74,6 +76,8 @@ fn parse_comments(path: &PathBuf) -> Expected {
     expected
 }
 
+// Keep all script-based coverage under tests/integration so new dyncall mirrors
+// are picked up by the generated harness when this file recompiles.
 #[test_resources("tests/integration/*/*.lox")]
 fn run_file_test(filename: &str) {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

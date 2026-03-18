@@ -3,6 +3,8 @@ fun write_file(handle, text){
     var ret =fputs(text,handle);
     print ret;//getlasterror();
 }
+var malloc = exfun("msvcrt|malloc|i32|ptr");
+var mem = malloc(42);
 //var getlasterror = exfun("kernel32|GetLastError||u32");
 //var puts = exfun("msvcrt.dll|puts|ptr|i32");
 //var fopen = exfun("msvcrt.dll|fopen|ptr,ptr|u64");

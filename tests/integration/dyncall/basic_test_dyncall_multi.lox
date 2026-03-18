@@ -1,0 +1,5 @@
+var strcmp = exfun("msvcrt.dll|strcmp|cstr,cstr|i32|");
+
+print strcmp("hello", "hello"); // expect: 0
+print strcmp("apple", "banana") < 0; // expect: true
+print strcmp("zebra", "apple") > 0; // expect: true

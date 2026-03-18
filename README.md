@@ -96,6 +96,29 @@ To run the tests just run:
 cargo test
 ```
 
+## dyncall support
+
+This fork includes a `dyncall` bridge for calling native functions from Lox.
+
+The entry point is `exfun(descriptor)`, which returns a callable external function handle using the same descriptor format as the `dyncall` crate.
+
+Currently supported:
+
+- scalar numeric arguments and returns
+- input C strings (`cstr`)
+- returned C strings (`cstr` / BASIC-style `str`) converted to Lox strings
+- variadic calls using `fixargs=N`
+- opaque pointer returns (`ptr`) and passing those returned pointers back into later `ptr` arguments
+
+Currently not supported:
+
+- output pointer arguments such as `*i32`, `*ptr`, etc.
+- output string buffers (`ocstr`)
+- raw byte buffers (`buff`, `obuff`)
+- struct arguments or returns (`{...}`, `*{...}`)
+
+Those unsupported cases require writable storage objects that plain Lox values do not provide. See the remaining `tests/integration/dyncall/` scripts for working scalar, string, variadic, and pointer-pass-through examples.
+
 ## Performance
 
 I measured the running times of the different benchmarks available in the [lox

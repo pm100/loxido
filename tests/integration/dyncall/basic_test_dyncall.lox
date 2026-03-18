@@ -1,0 +1,2 @@
+var atoi = exfun("msvcrt.dll|atoi|cstr|i32|");
+print atoi("42"); // expect: 42
