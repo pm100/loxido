@@ -146,15 +146,15 @@ impl Vm {
         value: f64,
     ) -> Result<(), LoxError> {
         match arg_type {
-            ArgType::Char => invocation.push_arg(&(value as u8)),
-            ArgType::I16 => invocation.push_arg(&(value as i16)),
-            ArgType::U16 => invocation.push_arg(&(value as u16)),
-            ArgType::I32 => invocation.push_arg(&(value as i32)),
-            ArgType::U32 => invocation.push_arg(&(value as u32)),
-            ArgType::I64 => invocation.push_arg(&(value as i64)),
-            ArgType::U64 => invocation.push_arg(&(value as u64)),
-            ArgType::F32 => invocation.push_arg(&(value as f32)),
-            ArgType::F64 => invocation.push_arg(&value),
+            ArgType::Char => invocation.push_arg(&(value as u8)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::I16 => invocation.push_arg(&(value as i16)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::U16 => invocation.push_arg(&(value as u16)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::I32 => invocation.push_arg(&(value as i32)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::U32 => invocation.push_arg(&(value as u32)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::I64 => invocation.push_arg(&(value as i64)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::U64 => invocation.push_arg(&(value as u64)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::F32 => invocation.push_arg(&(value as f32)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
+            ArgType::F64 => invocation.push_arg(&value).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
             _ => return self.runtime_error("Expected numeric dyncall argument type."),
         }
         Ok(())
@@ -541,7 +541,7 @@ impl Vm {
                                 arg,
                                 "External function cstr arguments require strings.",
                             )?;
-                            invocation.push_arg(&string);
+                            invocation.push_arg(&string).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::OCString(_) => {
                             return self.runtime_error(
@@ -573,7 +573,7 @@ impl Vm {
                                 }
                             };
                             let arg_val = ArgVal::Pointer(pointer);
-                            invocation.push_arg(&arg_val);
+                            invocation.push_arg(&arg_val).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::Struct(_) => {
                             return self
