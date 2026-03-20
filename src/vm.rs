@@ -597,7 +597,7 @@ impl Vm {
                 }
 
                 let return_type = funcdef.get_return_type().clone();
-                let result = invocation.call();
+                let result = invocation.call().map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                 self.stack.truncate(left - 1);
                 let value = self.arg_val_to_value(result, &return_type);
                 self.push(value);
@@ -813,7 +813,7 @@ fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
             parts[3] = "cstr".to_owned();
             s = parts.join("|");
         }
-        let funcdef = DynCaller::define_function_by_str(&s).map_err(|e| {
+        let funcdef = DynCaller::define_function(&s).map_err(|e| {
             let msg = format!("Failed to define external function: {}", e);
             vm.runtime_error(&msg).unwrap_err()
         })?;
