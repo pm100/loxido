@@ -1,0 +1,24 @@
+// Sound demo using mciSendStringA via dyncall
+// mciSendStringA(cmd, retbuf, retbuflen, hwnd) -> u32
+
+var mci = exfun("winmm.dll|mciSendStringA|cstr,ptr,u32,ptr|u32|coerce");
+
+print "Playing 4 sounds...";
+
+mci("open C:/Windows/Media/tada.wav type waveaudio alias snd", nil, 0, nil);
+mci("play snd wait", nil, 0, nil);
+mci("close snd", nil, 0, nil);
+
+mci("open C:/Windows/Media/chimes.wav type waveaudio alias snd", nil, 0, nil);
+mci("play snd wait", nil, 0, nil);
+mci("close snd", nil, 0, nil);
+
+mci("open C:/Windows/Media/chord.wav type waveaudio alias snd", nil, 0, nil);
+mci("play snd wait", nil, 0, nil);
+mci("close snd", nil, 0, nil);
+
+mci("open C:/Windows/Media/ding.wav type waveaudio alias snd", nil, 0, nil);
+mci("play snd wait", nil, 0, nil);
+mci("close snd", nil, 0, nil);
+
+print "Done!";
