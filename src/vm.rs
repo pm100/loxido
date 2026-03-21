@@ -99,17 +99,6 @@ impl Vm {
         }
     }
 
-    fn expect_external_data(
-        &self,
-        value: Value,
-        message: &str,
-    ) -> Result<GcRef<ExternalData>, LoxError> {
-        if let Value::ExternalData(reference) = value {
-            Ok(reference)
-        } else {
-            Err(self.runtime_error(message).unwrap_err())
-        }
-    }
 
     fn arg_val_to_value(&mut self, result: ArgVal, return_type: &ArgType) -> Value {
         match (return_type, result) {
@@ -338,7 +327,7 @@ impl Vm {
                     if let (Value::Class(subclass), Value::Class(superclass)) = pair {
                         let superclass = self.gc.deref(superclass);
                         let methods = superclass.methods.clone();
-                        let mut subclass = self.gc.deref_mut(subclass);
+                        let subclass = self.gc.deref_mut(subclass);
                         subclass.methods = methods;
                         self.pop();
                     } else {
@@ -429,7 +418,7 @@ impl Vm {
                 Instruction::SetUpvalue(slot) => {
                     let upvalue = self.current_closure().upvalues[slot as usize];
                     let value = self.peek(0);
-                    let mut upvalue = self.gc.deref_mut(upvalue);
+                    let upvalue = self.gc.deref_mut(upvalue);
                     if upvalue.closed.is_none() {
                         self.stack[upvalue.location] = value;
                     } else {
@@ -558,19 +547,13 @@ impl Vm {
                             return self
                                 .runtime_error("Struct arguments are not supported by loxido.");
                         }
-                        ArgType::Pointer(inner) => match inner.as_ref() {
-                            _ => {
-                                return self.runtime_error(
-                                    "Pointer output arguments are not supported by loxido.",
-                                );
-                            }
-                        },
+                        ArgType::Pointer(_) => {
+                            return self.runtime_error(
+                                "Pointer output arguments are not supported by loxido.",
+                            );
+                        }
                         ArgType::Void => {
                             return self.runtime_error("Void is not a valid argument type.");
-                        }
-                        _ => {
-                            return self
-                                .runtime_error("Unsupported argument type for external function.");
                         }
                     }
                 }

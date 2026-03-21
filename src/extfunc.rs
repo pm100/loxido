@@ -27,7 +27,6 @@ impl ExternalData {
     pub fn pointer_value(&self) -> Option<*mut c_void> {
         match self {
             Self::Pointer(ptr) => Some(*ptr),
-            _ => None,
         }
     }
 }

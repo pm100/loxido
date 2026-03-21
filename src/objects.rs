@@ -1,12 +1,8 @@
 use std::{
     any::Any,
-    cell::RefCell,
-    ffi::os_str::Display,
     fmt::{self, Debug},
     mem,
 };
-
-use dyncall::ArgVal;
 
 use crate::{
     chunk::{Chunk, Instruction, Table, Value},
