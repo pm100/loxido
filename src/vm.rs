@@ -139,27 +139,6 @@ impl Vm {
         }
     }
 
-    fn push_number_arg(
-        &mut self,
-        invocation: &mut dyncall::Invocation<'_>,
-        arg_type: &ArgType,
-        value: f64,
-    ) -> Result<(), LoxError> {
-        match arg_type {
-            ArgType::Char => invocation.push_arg(&(value as u8)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::I16 => invocation.push_arg(&(value as i16)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::U16 => invocation.push_arg(&(value as u16)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::I32 => invocation.push_arg(&(value as i32)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::U32 => invocation.push_arg(&(value as u32)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::I64 => invocation.push_arg(&(value as i64)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::U64 => invocation.push_arg(&(value as u64)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::F32 => invocation.push_arg(&(value as f32)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            ArgType::F64 => invocation.push_arg(&value).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?,
-            _ => return self.runtime_error("Expected numeric dyncall argument type."),
-        }
-        Ok(())
-    }
-
     fn runtime_error(&self, msg: &str) -> Result<(), LoxError> {
         let frame = self.current_frame();
         eprintln!("{}", msg);
@@ -534,7 +513,7 @@ impl Vm {
                                 arg,
                                 "External function numeric arguments require numbers.",
                             )?;
-                            self.push_number_arg(&mut invocation, &arg_type, number)?;
+                            invocation.push_arg_f64(number).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::CString => {
                             let string = self.expect_string(
