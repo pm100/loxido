@@ -25,7 +25,7 @@ pub struct Vm {
 
 impl Vm {
     const MAX_FRAMES: usize = 64;
-    const STACK_SIZE: usize = Vm::MAX_FRAMES * (std::u8::MAX as usize) + 1;
+    const STACK_SIZE: usize = Vm::MAX_FRAMES * (u8::MAX as usize) + 1;
 
     pub fn new() -> Self {
         let mut gc = Gc::new();
@@ -777,12 +777,12 @@ fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
         let external = ExternalFunction::new(funcdef, n);
 
         let gc = vm.define_external(external);
-        return Ok(Value::ExternalFunction(gc));
+        Ok(Value::ExternalFunction(gc))
     } else {
         let x = vm
             .runtime_error("exfun expects exactly 1 string argument")
             .unwrap_err();
-        return Err(x);
+        Err(x)
     }
 }
 

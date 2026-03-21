@@ -16,7 +16,7 @@ impl GcTrace for String {
         write!(f, "{}", self)
     }
     fn size(&self) -> usize {
-        mem::size_of::<String>() + self.as_bytes().len()
+        mem::size_of::<String>() + self.len()
     }
     fn trace(&self, _gc: &mut Gc) {}
     fn as_any(&self) -> &dyn Any {

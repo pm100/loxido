@@ -99,7 +99,7 @@ struct Compiler<'sourcecode> {
 }
 
 impl<'sourcecode> Compiler<'sourcecode> {
-    const LOCAL_COUNT: usize = std::u8::MAX as usize + 1;
+    const LOCAL_COUNT: usize = u8::MAX as usize + 1;
 
     fn new(function_name: GcRef<String>, kind: FunctionType) -> Box<Self> {
         let mut compiler = Compiler {
