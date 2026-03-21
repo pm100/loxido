@@ -770,11 +770,6 @@ fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
         if s.split('|').count() == 4 {
             s.push('|');
         }
-        let mut parts = s.split('|').map(str::to_owned).collect::<Vec<_>>();
-        if parts.len() >= 5 && parts[3].trim() == "str" {
-            parts[3] = "cstr".to_owned();
-            s = parts.join("|");
-        }
         let funcdef = DynCaller::define_function(&s).map_err(|e| {
             let msg = format!("Failed to define external function: {}", e);
             vm.runtime_error(&msg).unwrap_err()

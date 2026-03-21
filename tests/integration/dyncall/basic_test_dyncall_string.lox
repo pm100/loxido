@@ -1,4 +1,4 @@
-var getenv = exfun("msvcrt.dll|getenv|cstr|str|");
+var getenv = exfun("msvcrt.dll|getenv|cstr|cstr|");
 var path = getenv("PATH");
 
 print path != nil; // expect: true
