@@ -1,0 +1,11 @@
+// Test struct return: localeconv() returns *{cstr,cstr}
+// exfield(struct_obj, index) reads field by index
+var localeconv = exfun("msvcrt.dll|localeconv||*{cstr,cstr}|");
+var lc = localeconv();
+
+var dp = exfield(lc, 0); // decimal_point
+var ts = exfield(lc, 1); // thousands_sep
+
+print dp == "."; // expect: true
+print dp != nil; // expect: true
+print ts != nil; // expect: true

@@ -1,5 +1,5 @@
 use cpu_time::ProcessTime;
-use dyncall::{ArgType, ArgVal, DynCaller};
+use dyncall::{ArgType, ArgVal, DynCaller, ScriptVal, StructValue};
 use fmt::Debug;
 use std::ffi::CStr;
 
@@ -43,6 +43,9 @@ impl Vm {
         vm.define_native("clock", NativeFunction(clock));
         vm.define_native("panic", NativeFunction(lox_panic));
         vm.define_native("exfun", NativeFunction(exfun));
+        vm.define_native("exstruct", NativeFunction(exstruct));
+        vm.define_native("exfield", NativeFunction(exfield));
+        vm.define_native("exsetfield", NativeFunction(exsetfield));
         vm
     }
 
@@ -123,7 +126,7 @@ impl Vm {
             (_, ArgVal::F32(value)) => Value::Number(value as f64),
             (_, ArgVal::F64(value)) => Value::Number(value),
             (_, ArgVal::Pointer(pointer)) => self.alloc_external_data(ExternalData::Pointer(pointer)),
-            (_, ArgVal::StructValue(_)) => Value::Nil,
+            (_, ArgVal::StructValue(sv)) => self.alloc_external_data(ExternalData::Struct(sv)),
             _ => Value::Nil,
         }
     }
@@ -786,3 +789,133 @@ fn exfun(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
     }
 }
 
+/// `exstruct(descriptor_string)` — create an empty struct that matches the struct
+/// type described in the function descriptor.  The descriptor must contain a struct
+/// type as one of its args or as the return type.
+/// Returns an `ExternalData::Struct` value.
+fn exstruct(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
+    let args = &vm.stack[left..];
+    if args.len() != 1 {
+        return Err(vm.runtime_error("exstruct expects 1 argument: a descriptor string").unwrap_err());
+    }
+    let Value::String(s_ref) = args[0] else {
+        return Err(vm.runtime_error("exstruct: argument must be a descriptor string").unwrap_err());
+    };
+    let s = vm.gc.deref(s_ref).clone();
+    let funcdef = DynCaller::define_function(&s).map_err(|e| {
+        vm.runtime_error(&format!("exstruct: invalid descriptor: {}", e)).unwrap_err()
+    })?;
+    // Find the first struct arg type, then fall back to the return type.
+    let mut struct_arg_type: Option<ArgType> = None;
+    for i in 0..funcdef.get_arg_count() {
+        let at = funcdef.get_arg_type(i).clone();
+        if matches!(at, ArgType::Struct(_) | ArgType::Pointer(_)) {
+            struct_arg_type = Some(at);
+            break;
+        }
+    }
+    if struct_arg_type.is_none() {
+        let rt = funcdef.get_return_type().clone();
+        if matches!(rt, ArgType::Struct(_) | ArgType::Pointer(_)) {
+            struct_arg_type = Some(rt);
+        }
+    }
+    let arg_type = struct_arg_type.ok_or_else(|| {
+        vm.runtime_error("exstruct: no struct type found in descriptor").unwrap_err()
+    })?;
+    let sv = StructValue::new(&arg_type).map_err(|e| {
+        vm.runtime_error(&format!("exstruct: failed to create struct: {}", e)).unwrap_err()
+    })?;
+    Ok(vm.alloc_external_data(ExternalData::Struct(sv)))
+}
+
+/// `exfield(struct_obj, index)` — read field `index` from a struct ExternalData.
+/// Returns a number for numeric fields, a string for cstr fields.
+fn exfield(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
+    let args = &vm.stack[left..];
+    if args.len() != 2 {
+        return Err(vm.runtime_error("exfield expects 2 arguments: struct, index").unwrap_err());
+    }
+    let Value::ExternalData(data_ref) = args[0] else {
+        return Err(vm.runtime_error("exfield: first argument must be a struct object").unwrap_err());
+    };
+    let Value::Number(idx_f) = args[1] else {
+        return Err(vm.runtime_error("exfield: second argument must be a number").unwrap_err());
+    };
+    let idx = idx_f as usize;
+    let data = vm.gc.deref(data_ref);
+    let sv = data.struct_value().ok_or_else(|| {
+        vm.runtime_error("exfield: object is not a struct").unwrap_err()
+    })?;
+    match sv.script_read(idx).map_err(|e| {
+        vm.runtime_error(&format!("exfield: read error: {}", e)).unwrap_err()
+    })? {
+        ScriptVal::Number(n) => Ok(Value::Number(n)),
+        ScriptVal::Str(s) => {
+            let interned = vm.intern(s);
+            Ok(Value::String(interned))
+        }
+    }
+}
+
+/// `exsetfield(struct_obj, index, value)` — write `value` into field `index` of a
+/// struct ExternalData.  Returns nil.
+fn exsetfield(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
+    let args = &vm.stack[left..];
+    if args.len() != 3 {
+        return Err(vm.runtime_error("exsetfield expects 3 arguments: struct, index, value").unwrap_err());
+    }
+    let (data_ref, idx, val) = match (args[0], args[1], args[2]) {
+        (Value::ExternalData(r), Value::Number(n), v) => (r, n as usize, v),
+        (Value::ExternalData(_), _, _) => {
+            return Err(vm.runtime_error("exsetfield: second argument must be a number").unwrap_err());
+        }
+        _ => {
+            return Err(vm.runtime_error("exsetfield: first argument must be a struct object").unwrap_err());
+        }
+    };
+
+    // Capture new value as ScriptVal before touching GC.
+    let new_sv = match val {
+        Value::Number(n) => ScriptVal::Number(n),
+        Value::String(s_ref) => ScriptVal::Str(vm.gc.deref(s_ref).clone()),
+        _ => ScriptVal::Number(0.0),
+    };
+
+    // Read all current field values (immutable borrow).
+    let (field_count, mut fields) = {
+        let data = vm.gc.deref(data_ref);
+        let sv = data.struct_value().ok_or_else(|| {
+            vm.runtime_error("exsetfield: object is not a struct").unwrap_err()
+        })?;
+        let fc = sv.field_count();
+        if idx >= fc {
+            return Err(vm.runtime_error(&format!(
+                "exsetfield: index {} out of bounds ({})", idx, fc
+            )).unwrap_err());
+        }
+        let flds: Vec<ScriptVal> = (0..fc)
+            .map(|fi| sv.script_read(fi).map_err(|e| {
+                vm.runtime_error(&format!("exsetfield: read error: {}", e)).unwrap_err()
+            }))
+            .collect::<Result<_, _>>()?;
+        (fc, flds)
+    };
+
+    fields[idx] = new_sv;
+    let _ = field_count; // used implicitly via fields.len()
+
+    // Rebuild struct (mutable borrow — no other vm access allowed here).
+    let data = vm.gc.deref_mut(data_ref);
+    let sv = data.struct_value_mut().ok_or(LoxError::RuntimeError)?;
+    sv.reset();
+    for field in &fields {
+        let result = match field {
+            ScriptVal::Number(n) => sv.push_field_coerced(n),
+            ScriptVal::Str(_) => sv.push_field_coerced(&0.0f64), // cstr fields: push null
+        };
+        result.map_err(|_| LoxError::RuntimeError)?;
+    }
+
+    Ok(Value::Nil)
+}

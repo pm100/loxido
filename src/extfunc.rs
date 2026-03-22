@@ -21,12 +21,28 @@ impl ExternalFunction {
 #[derive(Clone, Debug)]
 pub enum ExternalData {
     Pointer(*mut c_void),
+    Struct(dyncall::StructValue),
 }
 
 impl ExternalData {
     pub fn pointer_value(&self) -> Option<*mut c_void> {
         match self {
             Self::Pointer(ptr) => Some(*ptr),
+            Self::Struct(_) => None,
+        }
+    }
+
+    pub fn struct_value(&self) -> Option<&dyncall::StructValue> {
+        match self {
+            Self::Struct(sv) => Some(sv),
+            Self::Pointer(_) => None,
+        }
+    }
+
+    pub fn struct_value_mut(&mut self) -> Option<&mut dyncall::StructValue> {
+        match self {
+            Self::Struct(sv) => Some(sv),
+            Self::Pointer(_) => None,
         }
     }
 }
@@ -60,6 +76,7 @@ impl GcTrace for ExternalData {
                     write!(f, "ptr({ptr:p})")
                 }
             }
+            Self::Struct(sv) => write!(f, "struct({} fields)", sv.field_count()),
         }
     }
     fn size(&self) -> usize {
