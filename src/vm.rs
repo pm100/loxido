@@ -105,15 +105,9 @@ impl Vm {
 
     fn arg_val_to_value(&mut self, result: ArgVal, return_type: &ArgType) -> Value {
         match (return_type, result) {
-            (ArgType::CString, ArgVal::Pointer(pointer)) => {
-                if pointer.is_null() {
-                    Value::Nil
-                } else {
-                    let string = unsafe { CStr::from_ptr(pointer.cast()) }
-                        .to_string_lossy()
-                        .into_owned();
-                    Value::String(self.intern(string))
-                }
+            (ArgType::CString, ArgVal::RustString(s)) => {
+                let string = unsafe { (*s).clone() };
+                Value::String(self.intern(string))
             }
             (_, ArgVal::None) => Value::Nil,
             (_, ArgVal::Char(value)) => Value::Number(value as f64),
