@@ -1,7 +1,6 @@
 use cpu_time::ProcessTime;
-use dyncall::{ArgType, ArgVal, DynCaller, ScriptVal, StructValue};
-use fmt::Debug;
-use std::ffi::CStr;
+use dyncall::{ArgType, DynCaller, ScriptVal, ScriptResult, StructValue};
+use std::fmt::Debug;
 
 use crate::{
     chunk::{Chunk, Instruction, Table, Value},
@@ -11,7 +10,7 @@ use crate::{
     gc::{Gc, GcRef, GcTrace, GcTraceFormatter},
     objects::{BoundMethod, Class, Closure, Instance, NativeFunction, Upvalue},
 };
-use std::fmt;
+
 
 pub struct Vm {
     gc: Gc,
@@ -103,25 +102,13 @@ impl Vm {
     }
 
 
-    fn arg_val_to_value(&mut self, result: ArgVal, return_type: &ArgType) -> Value {
-        match (return_type, result) {
-            (ArgType::CString, ArgVal::RustString(s)) => {
-                let string = unsafe { (*s).clone() };
-                Value::String(self.intern(string))
-            }
-            (_, ArgVal::None) => Value::Nil,
-            (_, ArgVal::Char(value)) => Value::Number(value as f64),
-            (_, ArgVal::I16(value)) => Value::Number(value as f64),
-            (_, ArgVal::U16(value)) => Value::Number(value as f64),
-            (_, ArgVal::I32(value)) => Value::Number(value as f64),
-            (_, ArgVal::U32(value)) => Value::Number(value as f64),
-            (_, ArgVal::I64(value)) => Value::Number(value as f64),
-            (_, ArgVal::U64(value)) => Value::Number(value as f64),
-            (_, ArgVal::F32(value)) => Value::Number(value as f64),
-            (_, ArgVal::F64(value)) => Value::Number(value),
-            (_, ArgVal::Pointer(pointer)) => self.alloc_external_data(ExternalData::Pointer(pointer)),
-            (_, ArgVal::StructValue(sv)) => self.alloc_external_data(ExternalData::Struct(sv)),
-            _ => Value::Nil,
+    fn script_val_to_value(&mut self, sv: ScriptVal) -> Value {
+        match sv {
+            ScriptVal::Number(n) => Value::Number(n),
+            ScriptVal::Integer(n) => Value::Number(n as f64),
+            ScriptVal::Str(s) => Value::String(self.intern(s)),
+            ScriptVal::Pointer(p) => self.alloc_external_data(ExternalData::Pointer(p)),
+            ScriptVal::Nil => Value::Nil,
         }
     }
 
@@ -499,19 +486,22 @@ impl Vm {
                                 arg,
                                 "External function numeric arguments require numbers.",
                             )?;
-                            invocation.push_arg_f64(number).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
+                            invocation.push_script_val(ScriptVal::Number(number)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::CString => {
                             let string = self.expect_string(
                                 arg,
                                 "External function cstr arguments require strings.",
                             )?;
-                            invocation.push_arg(&string).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
+                            invocation.push_script_val(ScriptVal::Str(string)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::OCString(_) => {
-                            return self.runtime_error(
-                                "Output string buffers are not supported by loxido.",
-                            );
+                            let string = match arg {
+                                Value::String(reference) => self.gc.deref(reference).clone(),
+                                Value::Nil => String::new(),
+                                _ => return self.runtime_error("OCString arguments require a string or nil."),
+                            };
+                            invocation.push_script_val(ScriptVal::Str(string)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::ByteBuffer | ArgType::OByteBuffer(_) => {
                             return self.runtime_error(
@@ -537,17 +527,14 @@ impl Vm {
                                     )
                                 }
                             };
-                            let arg_val = ArgVal::Pointer(pointer);
-                            invocation.push_arg(&arg_val).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
+                            invocation.push_script_val(ScriptVal::Pointer(pointer)).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::Struct(_) => {
                             return self
                                 .runtime_error("Struct arguments are not supported by loxido.");
                         }
                         ArgType::Pointer(_) => {
-                            return self.runtime_error(
-                                "Pointer output arguments are not supported by loxido.",
-                            );
+                            invocation.push_script_val(ScriptVal::Nil).map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
                         }
                         ArgType::Void => {
                             return self.runtime_error("Void is not a valid argument type.");
@@ -555,10 +542,9 @@ impl Vm {
                     }
                 }
 
-                let return_type = funcdef.get_return_type().clone();
-                let result = invocation.call().map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
+                let result: ScriptResult = invocation.call_scripted().map_err(|e| { eprintln!("{e}"); LoxError::RuntimeError })?;
+                let value = self.script_val_to_value(result.return_val);
                 self.stack.truncate(left - 1);
-                let value = self.arg_val_to_value(result, &return_type);
                 self.push(value);
                 Ok(())
             }
@@ -845,6 +831,9 @@ fn exfield(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
         vm.runtime_error(&format!("exfield: read error: {}", e)).unwrap_err()
     })? {
         ScriptVal::Number(n) => Ok(Value::Number(n)),
+        ScriptVal::Integer(n) => Ok(Value::Number(n as f64)),
+        ScriptVal::Pointer(p) => Ok(vm.alloc_external_data(ExternalData::Pointer(p))),
+        ScriptVal::Nil => Ok(Value::Nil),
         ScriptVal::Str(s) => {
             let interned = vm.intern(s);
             Ok(Value::String(interned))
@@ -906,7 +895,10 @@ fn exsetfield(vm: &mut Vm, left: usize) -> Result<Value, LoxError> {
     for field in &fields {
         let result = match field {
             ScriptVal::Number(n) => sv.push_field_coerced(n),
-            ScriptVal::Str(_) => sv.push_field_coerced(&0.0f64), // cstr fields: push null
+            ScriptVal::Integer(n) => sv.push_field_coerced(n),
+            ScriptVal::Pointer(p) => sv.push_field_coerced(&(*p as i64)),
+            ScriptVal::Nil => sv.push_field_coerced(&0i64),
+            ScriptVal::Str(_) => sv.push_field_coerced(&0.0f64),
         };
         result.map_err(|_| LoxError::RuntimeError)?;
     }
